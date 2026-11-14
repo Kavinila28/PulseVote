@@ -121,10 +121,13 @@ func main() {
 		polls.POST("", AuthMiddleware(), CreatePoll)
 		polls.GET("", ListPolls)
 		polls.GET("/:id", GetPoll)
-		polls.POST("/:id/vote", CastVote)
+		polls.POST("/:id/vote", AuthMiddleware(), CastVote)
 		polls.GET("/:id/results", GetPollResults)
-	}
 
+		polls.POST("/:id/close", AuthMiddleware(), ClosePoll)
+		polls.PUT("/:id", AuthMiddleware(), UpdatePoll)
+		polls.DELETE("/:id", AuthMiddleware(), DeletePoll)
+	}
 	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {

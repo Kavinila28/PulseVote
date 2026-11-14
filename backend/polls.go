@@ -331,61 +331,153 @@ func updatePollStatus(c *gin.Context, active bool) {
 func UpdatePoll(c *gin.Context) {
 	pollID, err := bson.ObjectIDFromHex(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid poll ID"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid poll ID",
+		})
 		return
 	}
 
 	creatorID := c.GetString("userID")
+	if creatorID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"message": "Please log in",
+		})
+		return
+	}
+
 	var req CreatePollRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Enter a valid question and options"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Enter a valid question and options",
+		})
 		return
 	}
 
 	options, valid := validateOptions(req.Options)
 	if !valid {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Options must be unique and contain 2–10 valid choices"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Options must be unique and contain 2–10 valid choices",
+		})
 		return
 	}
+
 	if req.ExpiresAt != nil && !req.ExpiresAt.After(time.Now()) {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Expiry time must be in the future"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Expiry time must be in the future",
+		})
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 
-	voteCount, err := VotesCollection.CountDocuments(ctx, bson.M{"pollId": pollID})
+	// Only the creator can edit their active poll.
+	var existingPoll Poll
+	err = PollsCollection.FindOne(ctx, bson.M{
+		"_id":       pollID,
+		"creatorId": creatorID,
+		"isActive":  true,
+	}).Decode(&existingPoll)
+
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Could not check existing votes"})
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"message": "Active poll not found or you are not its creator",
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Could not load poll",
+		})
 		return
 	}
-	if voteCount > 0 {
-		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "A poll cannot be edited after voting has started"})
+
+	// Check whether anyone has voted.
+	voteCount, err := VotesCollection.CountDocuments(ctx, bson.M{
+		"pollId": pollID,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Could not check existing votes",
+		})
 		return
+	}
+
+	// Once voting starts, answer options must remain unchanged.
+	if voteCount > 0 {
+		optionsChanged := len(options) != len(existingPoll.Options)
+
+		if !optionsChanged {
+			for i := range options {
+				if options[i] != existingPoll.Options[i] {
+					optionsChanged = true
+					break
+				}
+			}
+		}
+
+		if optionsChanged {
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"message": "Answer options cannot be changed after voting starts. You can still edit the question and expiry date.",
+			})
+			return
+		}
+	}
+
+	// Always allow question and expiry date updates.
+	updateFields := bson.M{
+		"question":  strings.TrimSpace(req.Question),
+		"expiresAt": req.ExpiresAt,
+	}
+
+	// Allow option updates only when nobody has voted.
+	if voteCount == 0 {
+		updateFields["options"] = options
 	}
 
 	result, err := PollsCollection.UpdateOne(
 		ctx,
-		bson.M{"_id": pollID, "creatorId": creatorID, "isActive": true},
-		bson.M{"$set": bson.M{
-			"question":  strings.TrimSpace(req.Question),
-			"options":   options,
-			"expiresAt": req.ExpiresAt,
-		}},
+		bson.M{
+			"_id":       pollID,
+			"creatorId": creatorID,
+			"isActive":  true,
+		},
+		bson.M{
+			"$set": updateFields,
+		},
 	)
+
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Could not update poll"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Could not update poll",
+		})
 		return
 	}
+
 	if result.MatchedCount == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Active poll not found or you are not its creator"})
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": "Active poll not found or you are not its creator",
+		})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Poll updated successfully"})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Poll updated successfully",
+	})
 }
-
 func DeletePoll(c *gin.Context) {
 	pollID, err := bson.ObjectIDFromHex(c.Param("id"))
 	if err != nil {

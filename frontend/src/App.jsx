@@ -1,4 +1,3 @@
-
 import { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import {
@@ -245,6 +244,48 @@ function App() {
       setLoading(false);
     }
   };
+
+const closePoll = async (poll) => {
+  if (!window.confirm("Are you sure you want to close this poll?")) {
+    return;
+  }
+
+  try {
+    await axios.post(
+      `${API}/polls/${poll.id}/close`,
+      {},
+      { headers: authHeaders() }
+    );
+
+    showNotice("success", "Poll closed successfully!");
+    await loadPolls();
+  } catch (error) {
+    showNotice(
+      "error",
+      error.response?.data?.message || "Unable to close poll."
+    );
+  }
+};
+
+const deletePoll = async (poll) => {
+  if (!window.confirm("Are you sure you want to delete this poll?")) {
+    return;
+  }
+
+  try {
+    await axios.delete(`${API}/polls/${poll.id}`, {
+      headers: authHeaders()
+    });
+
+    showNotice("success", "Poll deleted successfully!");
+    await loadPolls();
+  } catch (error) {
+    showNotice(
+      "error",
+      error.response?.data?.message || "Unable to delete poll. A poll with votes may not be deletable."
+    );
+  }
+};
 
   const addOption = () => {
     if (pollForm.options.length < 10) {
@@ -595,10 +636,10 @@ function App() {
                 {polls.map((poll) => (
                   <article className="poll-card" key={poll.id}>
                     <div className="poll-card-top">
-                      <span className="active-pill">
-                        <span /> Active
-                      </span>
-
+                      <span className={poll.isActive ? "active-pill" : "count-pill"}>
+  <span />
+  {poll.isActive ? "Active" : "Closed"}
+</span>
                       <span className="poll-date">
                         {new Date(poll.createdAt).toLocaleDateString()}
                       </span>
@@ -610,18 +651,40 @@ function App() {
                       {poll.options.length} choices available
                     </p>
 
-                    <div className="poll-card-footer">
-                      <span>
-                        <BarChart3 size={15} /> View results
-                      </span>
+                    
+<div className="poll-card-footer">
+  <span>
+    <BarChart3 size={15} /> View results
+  </span>
 
-                      <button
-                        className="text-button"
-                        onClick={() => openPoll(poll)}
-                      >
-                        Open poll <ArrowRight size={15} />
-                      </button>
-                    </div>
+  <button
+    className="text-button"
+    onClick={() => openPoll(poll)}
+  >
+    Open poll <ArrowRight size={15} />
+  </button>
+</div>
+
+{poll.creatorId === user.id && (
+  <div className="poll-management-actions">
+    {poll.isActive && (
+      <button
+        className="secondary-button"
+        onClick={() => closePoll(poll)}
+      >
+        <XCircle size={15} /> Close poll
+      </button>
+    )}
+
+    <button
+      className="text-button"
+      onClick={() => deletePoll(poll)}
+    >
+      <XCircle size={15} /> Delete
+    </button>
+  </div>
+)}
+
                   </article>
                 ))}
               </div>

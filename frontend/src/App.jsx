@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import "./App.css";
 
-const API = `${(import.meta.env.VITE_API_URL || "").replace(/\/$/, "")}/api`;
+const API = "https://pulsevote-api.hostless.app/api";
 const tokenKey = "pulsevote_token";
 
 const formatDate = (value) => {
